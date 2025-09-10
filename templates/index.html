@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <link href="https://fonts.googleapis.com" rel="preconnect"/>
+    <link crossorigin="" href="https://fonts.gstatic.com/" rel="preconnect"/>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+    <title>UrbanPulse AI Route Advisor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style type="text/tailwindcss">
+      :root {
+        --dark-bg: #0d0c1d;
+        --panel-bg: #131228;
+        --accent-white: #ffffff;
+        --light-grey: #e5e5e5;
+        --text-dark: #333;
+        --soft-glow-white: 0 0 15px rgba(255, 255, 255, 0.5);
+      }
+      body {
+        font-family: 'Space Grotesk', sans-serif;
+      }
+      .heading-font {
+        font-family: 'Roboto Mono', monospace;
+      }
+      .glow-white {
+        box-shadow: var(--soft-glow-white);
+      }
+      /* Modal Styles */
+      .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); display: none; justify-content: center; align-items: center; z-index: 1000; }
+      .modal-content { background-color: var(--dark-bg); color: var(--accent-white); padding: 30px; border-radius: 15px; border: 1px solid var(--accent-white)/50; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 20px; }
+      .modal-content input[type="datetime-local"] { color-scheme: dark; background-color: #000; border: 1px solid var(--accent-white)/50; padding: 8px; border-radius: 5px;}
+      .modal-content button { background-color: var(--accent-white); color: var(--dark-bg); padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body class="bg-[var(--dark-bg)] text-white">
+<div class="flex h-screen w-full p-4 gap-4">
+
+    <!-- Left Column: Map -->
+    <div class="w-2/3 h-full rounded-lg bg-black/50 shadow-lg glow-white">
+        <div id="map" class="h-full w-full rounded-lg"></div>
+    </div>
+
+    <!-- Right Column: Controls -->
+    <div class="w-1/3 h-full flex flex-col bg-[var(--panel-bg)] rounded-lg shadow-2xl glow-white p-6">
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-bold heading-font text-white text-shadow-[0_0_8px_rgba(255,255,255,0.7)]">UrbanPulse</h1>
+            <h2 class="text-xl text-[var(--light-grey)] heading-font text-shadow-[0_0_8px_rgba(229,229,229,0.7)]">AI Route Advisor</h2>
+        </div>
+
+        <form id="routeForm" class="space-y-4">
+            <div class="relative">
+                <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[var(--accent-white)]">my_location</span>
+                <input id="start" class="w-full bg-black/30 border border-[var(--accent-white)]/50 rounded-lg py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-[var(--accent-white)] transition-all" placeholder="Starting Point" type="text" required>
+            </div>
+            <div class="relative">
+                <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[var(--accent-white)]">flag</span>
+                <input id="destination" class="w-full bg-black/30 border border-[var(--accent-white)]/50 rounded-lg py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-[var(--accent-white)] transition-all" placeholder="Destination" type="text" required>
+            </div>
+
+            <!-- Professional Time Options -->
+            <div class="grid grid-cols-2 gap-2 mt-2">
+                 <button type="button" id="leaveNowBtn" class="w-full py-2 bg-white/10 border border-white/20 rounded-lg hover:bg-white/20 transition-colors active">Leave Now</button>
+                 <button type="button" id="departAtBtn" class="w-full py-2 bg-white/10 border border-white/20 rounded-lg hover:bg-white/20 transition-colors">Depart At</button>
+            </div>
+            <div id="departure-time-display" class="text-center text-sm text-gray-400 h-5"></div>
+
+            <button type="submit" class="w-full mt-4 py-3 bg-[var(--accent-white)] text-black font-bold text-lg rounded-lg hover:bg-gray-200 transition-all glow-white hover:shadow-[0_0_25px_rgba(255,255,255,0.8)]">
+                Advise Route
+            </button>
+        </form>
+
+        <div id="result-container" class="mt-4 flex-1 overflow-y-auto pr-2">
+            <div id="result" class="space-y-4">
+                 <p class="p-4 text-center text-gray-400">Enter a route to begin analysis.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for Departure Time -->
+<div id="timeModal" class="modal-overlay">
+    <div class="modal-content">
+        <h3 class="text-center text-lg">Select Departure Time</h3>
+        <input type="datetime-local" id="departure_time_input">
+        <div class="flex justify-end gap-4">
+            <button id="cancelTimeBtn" class="bg-gray-600 hover:bg-gray-500">Cancel</button>
+            <button id="setTimeBtn">Set Time</button>
+        </div>
+    </div>
+</div>
+
+<script async src="https://maps.googleapis.com/maps/api/js?key={{ api_key }}&libraries=places,geometry&callback=initApp"></script>
+<script>
+    let map;
+    let drawnPolylines = [];
+    let drawnMarkers = [];
+    let departureTime = null;
+
+    function initApp() {
+        // A dark map style to match the UI
+        const darkMapStyle = [ { elementType: "geometry", stylers: [{ color: "#212121" }] }, { elementType: "labels.icon", stylers: [{ visibility: "off" }] }, { elementType: "labels.text.stroke", stylers: [{ color: "#212121" }] }, { elementType: "labels.text.fill", stylers: [{ color: "#757575" }] }, { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#757575" }] }, { featureType: "administrative.country", elementType: "labels.text.fill", stylers: [{ color: "#9e9e9e" }] }, { featureType: "administrative.land_parcel", stylers: [{ visibility: "off" }] }, { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#bdbdbd" }] }, { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] }, { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#181818" }] }, { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#616161" }] }, { featureType: "poi.park", elementType: "labels.text.stroke", stylers: [{ color: "#1b1b1b" }] }, { featureType: "road", elementType: "geometry", stylers: [{ color: "#2c2c2c" }] }, { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#8a8a8a" }] }, { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#373737" }] }, { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#3c3c3c" }] }, { featureType: "road.highway.controlled_access", elementType: "geometry", stylers: [{ color: "#4e4e4e" }] }, { featureType: "road.local", elementType: "labels.text.fill", stylers: [{ color: "#616161" }] }, { featureType: "transit", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] }, { featureType: "water", elementType: "geometry", stylers: [{ color: "#000000" }] }, { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#3d3d3d" }] } ];
+        map = new google.maps.Map(document.getElementById("map"), { zoom: 12, center: { lat: 28.6692, lng: 77.4538 }, styles: darkMapStyle, disableDefaultUI: true, zoomControl: true });
+
+        new google.maps.places.Autocomplete(document.getElementById('start'), { componentRestrictions: { country: "in" } });
+        new google.maps.places.Autocomplete(document.getElementById('destination'), { componentRestrictions: { country: "in" } });
+
+        setupEventListeners();
+    }
+
+    function setupEventListeners() {
+        const leaveNowBtn = document.getElementById('leaveNowBtn');
+        const departAtBtn = document.getElementById('departAtBtn');
+        const timeModal = document.getElementById('timeModal');
+        const setTimeBtn = document.getElementById('setTimeBtn');
+        const cancelTimeBtn = document.getElementById('cancelTimeBtn');
+        const departureTimeInput = document.getElementById('departure_time_input');
+        const timeDisplay = document.getElementById('departure-time-display');
+
+        leaveNowBtn.addEventListener('click', () => {
+            departureTime = null;
+            leaveNowBtn.classList.add('active', 'bg-white/20');
+            departAtBtn.classList.remove('active', 'bg-white/20');
+            timeDisplay.textContent = '';
+        });
+
+        departAtBtn.addEventListener('click', () => {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            departureTimeInput.value = now.toISOString().slice(0,16);
+            timeModal.style.display = 'flex';
+        });
+
+        setTimeBtn.addEventListener('click', () => {
+            departureTime = departureTimeInput.value;
+            const displayDate = new Date(departureTime);
+            timeDisplay.textContent = `Scheduled for: ${displayDate.toLocaleString()}`;
+            leaveNowBtn.classList.remove('active', 'bg-white/20');
+            departAtBtn.classList.add('active', 'bg-white/20');
+            timeModal.style.display = 'none';
+        });
+
+        cancelTimeBtn.addEventListener('click', () => {
+            timeModal.style.display = 'none';
+        });
+
+        document.getElementById('routeForm').addEventListener('submit', handleRouteSubmission);
+    }
+
+    function clearMap() {
+        drawnPolylines.forEach(line => line.setMap(null));
+        drawnPolylines = [];
+        drawnMarkers.forEach(marker => marker.setMap(null));
+        drawnMarkers = [];
+    }
+
+    function formatDuration(seconds) {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.round((seconds % 3600) / 60);
+        if (hours > 0) return `${hours} hr ${minutes} min`;
+        return `${minutes} min`;
+    }
+
+    function handleRouteSubmission(event) {
+        if (event) event.preventDefault();
+        const start = document.getElementById('start').value;
+        const destination = document.getElementById('destination').value;
+        const resultDiv = document.getElementById('result');
+
+        resultDiv.innerHTML = '<div class="flex justify-center items-center h-full"><div class="w-10 h-10 border-4 border-t-[var(--accent-white)] border-gray-600 rounded-full animate-spin"></div></div>';
+        clearMap();
+
+        const payload = { start: start, destination: destination };
+        if (departureTime) {
+            payload.departure_time = departureTime;
+        }
+
+        fetch('/predict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                resultDiv.innerHTML = `<p class="p-4 text-center text-[var(--bright-red)]">Error: ${data.error}</p>`;
+                return;
+            }
+
+            let resultHTML = '';
+            const bounds = new google.maps.LatLngBounds();
+
+            const startMarker = new google.maps.Marker({ position: data.start_location, map: map, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: 'var(--light-grey)', fillOpacity: 1, strokeColor: 'white', strokeWeight: 2 } });
+            const endMarker = new google.maps.Marker({ position: data.end_location, map: map, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: 'var(--accent-white)', fillOpacity: 1, strokeColor: 'white', strokeWeight: 2 } });
+            drawnMarkers.push(startMarker, endMarker);
+
+            data.routes.forEach((route, index) => {
+                const decodedPath = google.maps.geometry.encoding.decodePath(route.polyline);
+                const routePolyline = new google.maps.Polyline({
+                    path: decodedPath,
+                    strokeColor: route.recommended ? 'var(--light-grey)' : '#444',
+                    strokeOpacity: 1.0,
+                    strokeWeight: route.recommended ? 8 : 5,
+                    zIndex: route.recommended ? 2 : 1,
+                    map: map
+                });
+                drawnPolylines.push(routePolyline);
+                decodedPath.forEach(point => bounds.extend(point));
+
+                const customDuration = formatDuration(route.custom_duration_sec);
+                const recommendedClass = route.recommended ? "border-2 border-[var(--light-grey)] glow-light-grey" : "border border-transparent hover:border-white/50";
+                resultHTML += `
+                    <li class="p-4 bg-black/30 rounded-lg transition-all cursor-pointer ${recommendedClass}">
+                        <div class="flex justify-between items-center">
+                            <h3 class="text-lg font-bold heading-font">${route.summary}</h3>
+                            ${route.recommended ? '<span class="material-symbols-outlined text-[var(--light-grey)]">star</span>' : ''}
+                        </div>
+                        <p class="text-sm text-gray-300 mt-1"><span class="font-bold text-white">AI Prediction:</span> ${customDuration}</p>
+                        <p class="text-sm text-gray-400">Google's Estimate: ${route.google_duration_text}</p>
+                    </li>
+                `;
+            });
+
+            resultDiv.innerHTML = `<ul class="space-y-4">${resultHTML}</ul>`;
+            map.fitBounds(bounds);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            resultDiv.innerHTML = `<p class="p-4 text-center text-[var(--bright-red)]">Could not connect to the server.</p>`;
+        });
+    }
+</script>
+</body>
+</html>
+

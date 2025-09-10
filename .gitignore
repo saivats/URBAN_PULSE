@@ -1,0 +1,13 @@
+# Virtual Environment
+.venv/
+venv/
+
+# PyCharm files
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local config file (optional, but good practice if it has secrets)
+# config.py
